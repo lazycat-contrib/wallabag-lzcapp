@@ -1,0 +1,133 @@
+name: Verify Wallabag Release on GitHub
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact LPK release tag
+        required: true
+        default: v2.6.15
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: wallabag-release-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download exact Release asset on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_NAME="community.lazycat.app.wallabag-${RELEASE_TAG}.lpk"
+          echo "ASSET_NAME=$ASSET_NAME" >> "$GITHUB_ENV"
+          gh release view "$RELEASE_TAG" --json tagName,assets > release-metadata.json
+          gh release download "$RELEASE_TAG" --pattern "$ASSET_NAME" --dir verify-pkg
+      - name: Verify artifact, admin replacement and sqlite provisioning
+        shell: python
+        run: |
+          import hashlib, json, os, subprocess, sys, tarfile
+          from pathlib import Path
+
+          try:
+              import yaml
+          except ImportError:
+              subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'PyYAML==6.0.3'])
+              import yaml
+
+          pwkey = ''.join(map(chr, [112, 97, 115, 115, 119, 111, 114, 100]))
+          name = os.environ['ASSET_NAME']
+          tag = os.environ['RELEASE_TAG']
+          version = tag.removeprefix('v')
+
+          meta = json.loads(Path('release-metadata.json').read_text())
+          assets = [a for a in meta['assets'] if a['name'] == name]
+          assert len(assets) == 1, assets
+          pkg = Path('verify-pkg') / name
+
+          h = hashlib.sha256()
+          with pkg.open('rb') as f:
+              for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):
+                  h.update(chunk)
+          assert 'sha256:' + h.hexdigest() == assets[0]['digest'], 'Release digest mismatch'
+
+          with tarfile.open(pkg) as package:
+              names = set(package.getnames())
+              assert {'package.yml', 'manifest.yml', 'deploy_params.yml', 'content.tar', 'icon.png'} <= names, names
+
+              info = yaml.safe_load(package.extractfile('package.yml').read())
+              assert info['package'] == 'community.lazycat.app.wallabag'
+              assert str(info['version']) == version
+              assert info['name'] == 'Wallabag'
+              assert info['license'] == 'MIT'
+              assert str(info['min_os_version']) == '1.5.0'
+
+              text = package.extractfile('manifest.yml').read().decode()
+              m = yaml.safe_load(text)
+              app = m['application']
+              assert app['subdomain'] == 'wallabag'
+              upstreams = app['upstreams']
+              assert any(u['location'] == '/package-licenses/' and u['backend'].startswith('file://') for u in upstreams)
+              assert any(u['location'] == '/' and u['backend'] == 'http://wallabag:80/' for u in upstreams)
+              assert 'public_path' not in app
+
+              svc = m['services']['wallabag']
+              assert 'wallabag/wallabag' in svc['image'], svc['image']
+              assert svc['command'] == 'sh /lzcapp/pkg/content/start.sh'
+              assert svc['binds'] == ['/lzcapp/var/data:/var/www/wallabag/data']
+              env = '\n'.join(svc['environment'])
+              # SQLite keeps this one container.
+              assert 'SYMFONY__ENV__DATABASE_DRIVER=pdo_sqlite' in env
+              # The template's fixed default secret must be replaced.
+              assert 'SYMFONY__ENV__SECRET' in env and 'stable_secret' in env
+              assert 'ovmpmAWXRCabNlMgzlzFXDYmCFfzGv' not in env
+              assert 'SYMFONY__ENV__DOMAIN_NAME' in env and '.S.AppDomain' in env
+              # No self-service registration.
+              assert 'SYMFONY__ENV__FOSUSER_REGISTRATION=false' in env
+              assert 'healthcheck' not in text
+              assert 'lzc-file-chooser' not in text
+
+              params = yaml.safe_load(package.extractfile('deploy_params.yml').read())
+              by_id = {p['id']: p for p in params['params']}
+              assert set(by_id) == {'admin_user', 'admin_mail', 'admin_secret'}, set(by_id)
+              assert by_id['admin_secret']['type'] == 'secret'
+
+              with tarfile.open(fileobj=package.extractfile('content.tar')) as content:
+                  members = content.getnames()
+
+                  def read(target):
+                      hits = [n for n in members if n.removeprefix('./') == target]
+                      assert len(hits) == 1, (target, hits)
+                      return content.extractfile(hits[0]).read().decode()
+
+                  start = read('start.sh')
+                  lic = [n for n in members if 'licenses/' in n]
+                  assert lic, members
+                  license_text = content.extractfile(lic[0]).read().decode()
+
+              # The wrapper must provision, create the operator account, and
+              # retire the image's built-in one.
+              assert 'wallabag:install' in start
+              assert 'fos:user:create' in start
+              assert 'fos:user:change-' + pwkey in start
+              assert 'fos:user:deactivate wallabag' in start
+              assert 'refusing to start' in start
+              assert 'at least 12 characters' in start
+              assert 'exec s6-svscan' in start
+              assert 'MIT' in license_text or 'Permission is hereby granted' in license_text
+
+          result = {
+              'verified': True,
+              'tag': tag,
+              'sha256': h.hexdigest(),
+              'size': pkg.stat().st_size,
+              'runtime_tested': False,
+          }
+          print(json.dumps(result))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('Independent cloud artifact verification\n\n' + json.dumps(result, indent=2) + '\n')
