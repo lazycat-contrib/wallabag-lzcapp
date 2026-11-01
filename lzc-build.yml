@@ -1,0 +1,5 @@
+manifest: ./lzc-manifest.yml
+pkgout: ./dist
+icon: ./icon.png
+contentdir: ./content
+deploy_params: ./lzc-deploy-params.yml

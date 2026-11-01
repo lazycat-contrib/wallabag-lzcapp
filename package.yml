@@ -1,0 +1,18 @@
+package: community.lazycat.app.wallabag
+version: 2.6.15
+name: Wallabag
+description: "Save web pages for later reading, with full-text search and site archives."
+min_os_version: "1.5.0"
+homepage: https://github.com/wallabag/wallabag
+author: wallabag
+license: MIT
+permissions:
+  required:
+    - net.internet
+locales:
+  zh:
+    name: Wallabag
+    description: "稍后阅读服务：保存网页正文、全文检索、标签与归档，支持浏览器插件与手机 App。"
+  en:
+    name: Wallabag
+    description: "Save web pages for later reading, with full-text search and site archives."

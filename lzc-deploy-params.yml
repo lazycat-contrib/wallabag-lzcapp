@@ -1,0 +1,30 @@
+params:
+  - id: admin_user
+    type: string
+    name: Admin username
+    description: "Administrator account name. Letters, digits and _ . @ - only; created on first start."
+    default_value: admin
+    optional: false
+  - id: admin_mail
+    type: string
+    name: Admin email
+    description: "Administrator email address, also the login identity."
+    default_value: admin@example.com
+    optional: false
+  - id: admin_secret
+    type: secret
+    name: Admin secret
+    description: "At least 12 characters. Creates the administrator on first start and rotates it afterwards; the image's built-in wallabag/wallabag account is deactivated."
+    default_value: "$random(len=20)"
+    optional: false
+locales:
+  zh:
+    admin_user:
+      name: 管理员用户名
+      description: 管理员账号名，只能用字母、数字和 _ . @ -；首次启动时创建。
+    admin_mail:
+      name: 管理员邮箱
+      description: 管理员邮箱，同时也是登录身份。
+    admin_secret:
+      name: 管理员密码
+      description: 至少 12 位。首次启动用它创建管理员，之后作为密码同步；镜像内置的 wallabag/wallabag 账号会被停用。

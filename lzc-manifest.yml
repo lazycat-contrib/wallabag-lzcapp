@@ -1,0 +1,54 @@
+application:
+  subdomain: wallabag
+  multi_instance: false
+  upstreams:
+    - location: /package-licenses/
+      backend: file:///lzcapp/pkg/content/licenses/
+    - location: /
+      backend: http://wallabag:80/
+
+services:
+  wallabag:
+    # upstream: wallabag/wallabag:2.6.15
+    image: docker.1ms.run/wallabag/wallabag:2.6.15
+    environment:
+      # SQLite keeps this a single container; the image provisions it on first run.
+      - SYMFONY__ENV__DATABASE_DRIVER=pdo_sqlite
+      # Must not stay at the template's fixed default.
+      - |-
+        SYMFONY__ENV__SECRET={{ stable_secret "wallabag_secret" | replace "\r" "" | replace "\n" "" }}
+      - |-
+        SYMFONY__ENV__DOMAIN_NAME=https://{{ .S.AppDomain }}
+      # No self-service registration: accounts are created by the operator.
+      - SYMFONY__ENV__FOSUSER_REGISTRATION=false
+      - POPULATE_DATABASE=True
+      - |-
+        WALLABAG_ADMIN_USER={{ .U.admin_user | replace "\r" "" | replace "\n" "" }}
+      - |-
+        WALLABAG_ADMIN_MAIL={{ .U.admin_mail | replace "\r" "" | replace "\n" "" }}
+      - |-
+        WALLABAG_ADMIN_PASS={{ .U.admin_secret | replace "\r" "" | replace "\n" "" }}
+      - TZ=Asia/Shanghai
+    command: sh /lzcapp/pkg/content/start.sh
+    binds:
+      - /lzcapp/var/data:/var/www/wallabag/data
+
+usage: |
+  Wallabag 是稍后阅读服务：把网页正文抓下来自己存档，随时离线阅读、全文检索。
+
+  使用方法：
+  1. 打开应用，用部署参数里的管理员邮箱和密码登录。
+  2. 装上浏览器扩展或手机 App 后，看到想稍后读的页面点一下就能存进来。
+  3. 正文、标签和归档都在应用内管理，支持全文搜索与导出。
+
+  数据与安全：
+  - 文章、归档文件和 SQLite 数据库都保存在 /lzcapp/var/data，卸载应用会一并删除，请定期导出备份。
+  - 本应用不使用镜像内置的 wallabag/wallabag 账号：容器启动时会用部署参数创建你自己的超级管理员，并把内置账号停用。
+  - 会话密钥由平台稳定密钥生成，每个部署不同，不使用模板里的固定默认值。
+  - 已关闭自助注册，账号只能由管理员在应用内创建。
+  - 应用经懒猫入口鉴权访问。
+
+  说明：
+  - 未配置邮件服务，依赖邮件的找回密码流程不可用；忘记密码可在应用内由管理员重置。
+  - 首次启动需要完成建表与依赖安装，可能比普通应用慢一些，属正常现象。
+  - 未做真机验证：建库、登录、文章抓取、全文检索、导出以及重启后持久化均未在设备上实测。
