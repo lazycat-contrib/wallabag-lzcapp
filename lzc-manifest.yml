@@ -1,6 +1,10 @@
 application:
   subdomain: wallabag
   multi_instance: false
+  # This app authenticates its own users, so it is exposed directly
+  # instead of sitting behind the platform login gate.
+  public_path:
+    - /
   upstreams:
     - location: /package-licenses/
       backend: file:///lzcapp/pkg/content/licenses/
@@ -46,7 +50,8 @@ usage: |
   - 本应用不使用镜像内置的 wallabag/wallabag 账号：容器启动时会用部署参数创建你自己的超级管理员，并把内置账号停用。
   - 会话密钥由平台稳定密钥生成，每个部署不同，不使用模板里的固定默认值。
   - 已关闭自助注册，账号只能由管理员在应用内创建。
-  - 应用经懒猫入口鉴权访问。
+  - 应用直接对外开放，由应用自己的登录页鉴权：
+    自带账号体系的服务再套一层平台鉴权会造成重复登录，所以用 public_path。
 
   说明：
   - 未配置邮件服务，依赖邮件的找回密码流程不可用；忘记密码可在应用内由管理员重置。
